@@ -1,5 +1,5 @@
 # ==========================================
-# Stage 2A Scanner (SATA = EXACT test2.py)
+# Stage 2A Scanner (RUN ONCE - CRON MODE)
 # ==========================================
 import os
 import asyncio
@@ -9,9 +9,8 @@ import pandas as pd
 import yfinance as yf
 from telegram import Bot
 
-
 # ==========================================
-# CONFIG
+# CONFIG (แนะนำใช้ ENV)
 # ==========================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
@@ -23,10 +22,8 @@ bot = Bot(token=BOT_TOKEN)
 # ==========================================
 def get_symbols_from_google_sheet():
     url = "https://docs.google.com/spreadsheets/d/1r9Zh_7bS94NYI6XKA7Lm7YWK5WQWYw0wopcve4DJuHw/export?format=csv"
-
     df = pd.read_csv(url)
 
-    # ใช้คอลัมน์แรก (Column A)
     col = df.columns[0]
 
     symbols = (
@@ -40,8 +37,9 @@ def get_symbols_from_google_sheet():
         .tolist()
     )
 
-    print(f"Google Sheet symbols: {len(symbols)}")
+    print(f"[INFO] Google Sheet symbols: {len(symbols)}")
     return symbols
+
 
 def get_sp500():
     url = "https://datahub.io/core/s-and-p-500-companies/r/constituents.csv"
@@ -59,7 +57,7 @@ def get_sp500():
         .tolist()
     )
 
-    print(f"S&P500 symbols: {len(symbols)}")   # ✅ เพิ่มบรรทัดนี้
+    print(f"[INFO] S&P500 symbols: {len(symbols)}")
     return symbols
 
 
@@ -79,39 +77,28 @@ def get_nasdaq100():
         .tolist()
     )
 
-    print(f"NASDAQ100 symbols: {len(symbols)}")  # ✅ เพิ่มบรรทัดนี้
+    print(f"[INFO] NASDAQ100 symbols: {len(symbols)}")
     return symbols
+
 
 def get_all_symbols():
     sp500 = set(get_sp500())
     nasdaq100 = set(get_nasdaq100())
     google = set(get_symbols_from_google_sheet())
 
-    # ===== OVERLAP =====
-    sp500_nasdaq = sp500 & nasdaq100
-    sp500_google = sp500 & google
-    nasdaq_google = nasdaq100 & google
-    all_three = sp500 & nasdaq100 & google
-
-    print("\n===== DUPLICATE SYMBOLS =====")
-    print(f"S&P500 & NASDAQ100: {len(sp500_nasdaq)}")
-    print(f"S&P500 & Google Sheet: {len(sp500_google)}")
-    print(f"NASDAQ100 & Google Sheet: {len(nasdaq_google)}")
-    print(f"All 3 overlap: {len(all_three)}")
-
-    # ===== รวมทั้งหมด =====
     symbols = list(sp500 | nasdaq100 | google)
 
-    blacklist = {"BF-B"}
-    symbols = [s for s in symbols if s not in blacklist]
+    #blacklist = {"BF-B"}
+    #symbols = [s for s in symbols if s not in blacklist]
 
     symbols.sort()
-    print(f"Total symbols: {len(symbols)}")
+    print(f"[INFO] Total symbols: {len(symbols)}")
 
     return symbols
 
+
 # ==========================================
-# SATA (EXACT FROM test2.py)
+# SATA
 # ==========================================
 def calculate_sata(symbol):
     try:
@@ -129,7 +116,6 @@ def calculate_sata(symbol):
         if len(df) < 60:
             return None, None, None
 
-        # ===== MA =====
         df["ma10"] = df["Close"].rolling(10).mean()
         df["ma30"] = df["Close"].rolling(30).mean()
         df["ma40"] = df["Close"].rolling(40).mean()
@@ -138,17 +124,13 @@ def calculate_sata(symbol):
         df["ma30_slope"] = df["ma30"].diff()
         df["ma40_slope"] = df["ma40"].diff()
 
-
-        # ===== RS =====
         rs = df["Close"] / df["Index"]
         rs_ma = rs.rolling(52).mean()
         mansfield = ((rs / rs_ma) - 1) * 100
         rs_slope = mansfield.diff()
 
-        # ===== Volume =====
         df["vol_ma"] = df["Volume"].rolling(10).mean()
 
-        # ===== SATA =====
         sata = pd.DataFrame(index=df.index)
 
         sata["a1"] = (df["Close"] > df["ma30"]).astype(int)
@@ -163,15 +145,16 @@ def calculate_sata(symbol):
         sata["a10"] = (df["Volume"] > df["vol_ma"]).astype(int)
 
         sata["score"] = sata.sum(axis=1)
-        sata = sata.fillna(0)
 
         return df, sata, rs
 
-    except:
+    except Exception as e:
+        print(f"[ERROR] {symbol}: {e}")
         return None, None, None
 
+
 # ==========================================
-# STAGE 2A
+# LOGIC
 # ==========================================
 def detect_stage2A(df):
     close = df["Close"]
@@ -190,46 +173,45 @@ def detect_stage2A(df):
 
     return False
 
+
 def detect_rs_new_high(rs, lookback=60):
     return rs.iloc[-1] >= rs.tail(lookback).max()
+
 
 # ==========================================
 # SCAN
 # ==========================================
 def scan(symbols):
-
     results = []
 
-    for symbol in symbols:
-        try:
-            df, sata, rs = calculate_sata(symbol)
+    for i, symbol in enumerate(symbols, 1):
+        print(f"[SCAN] {i}/{len(symbols)} {symbol}")
 
-            if df is None:
-                continue
+        df, sata, rs = calculate_sata(symbol)
 
-            score = int(sata["score"].iloc[-1])
-
-            if (
-                detect_stage2A(df)
-                and detect_rs_new_high(rs)
-                and score >= 7   # 🔥 threshold แนะนำ
-            ):
-                results.append({
-                    "symbol": symbol,
-                    "score": score,
-                    "price": df["Close"].iloc[-1]
-                })
-
-        except:
+        if df is None:
             continue
 
+        score = int(sata["score"].iloc[-1])
+
+        if (
+            detect_stage2A(df)
+            and detect_rs_new_high(rs)
+            and score >= 7
+        ):
+            results.append({
+                "symbol": symbol,
+                "score": score,
+                "price": df["Close"].iloc[-1]
+            })
+
     return sorted(results, key=lambda x: x["score"], reverse=True)
+
 
 # ==========================================
 # TELEGRAM
 # ==========================================
 async def send(results):
-
     if not results:
         await bot.send_message(chat_id=CHAT_ID, text="❌ No Stage 2A")
         return
@@ -238,40 +220,40 @@ async def send(results):
     pages = math.ceil(len(results) / chunk)
 
     for i in range(pages):
-        text = f"🚀 Stage 2A Scan ({i+1}/{pages})\n\n"
+        text = f"🚀 Stage 2A Scan ({i+1}/{pages})\n"
 
         if i == 0:
-            text += f"พบทั้งหมด {len(results)} หุ้น\n\n"
+            text += f"พบทั้งหมด {len(results)} หุ้น\n"
 
         for r in results[i*chunk:(i+1)*chunk]:
             text += f"🟢 {r['symbol']} | SATA {r['score']}/10 | ${r['price']:.2f}\n"
 
         await bot.send_message(chat_id=CHAT_ID, text=text)
 
+
 # ==========================================
-# LOOP
+# MAIN (RUN ONCE)
 # ==========================================
-async def main_loop():
+async def main():
+    print("=== START SCAN ===")
 
-    while True:
-        try:
-            print("Running Stage 2A scan...", flush=True)
+    symbols = get_all_symbols()
+    results = scan(symbols)
 
-            symbols = get_all_symbols()
-            results = scan(symbols)
+    print(f"[INFO] Found {len(results)} candidates")
 
-            await send(results)
+    await send(results)
 
-            print("Done. Sleep 24h", flush=True)
+    print("=== FINISHED ===")
 
-        except Exception as e:
-            print("ERROR:", e, flush=True)
-
-        await asyncio.sleep(60 * 60 * 24)
 
 # ==========================================
 # START
 # ==========================================
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main_loop())
+
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print("[FATAL ERROR]", e)
