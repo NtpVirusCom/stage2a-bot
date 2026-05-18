@@ -223,7 +223,7 @@ async def send(results):
     pages = math.ceil(len(results) / chunk)
 
     for i in range(pages):
-        text = f"🚀 Stage 2A Scan ({i+1}/{pages})\n"
+        text = f"🚀 Stage 2A Scan by Railway.com ({i+1}/{pages})\n"
 
         if i == 0:
             text += f"พบทั้งหมด {len(results)} หุ้น\n"
