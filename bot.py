@@ -42,7 +42,10 @@ def get_symbols_from_google_sheet():
 
 
 def get_sp500():
-    url = "https://datahub.io/core/s-and-p-500-companies/r/constituents.csv"
+    #url = "https://datahub.io/core/s-and-p-500-companies/r/constituents.csv" error
+    #url = "https://datahub.io/core/s-and-p-500-companies-financials/_r/-/data/scatter-data.csv"
+    #url = "https://datahub.io/core/s-and-p-500-companies-financials/_r/-/data/constituents.csv"
+    url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
     df = pd.read_csv(url)
 
     col = "Symbol" if "Symbol" in df.columns else df.columns[0]
